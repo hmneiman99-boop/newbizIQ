@@ -478,14 +478,18 @@
     ).then(function(r) { return parseJSON(r); }).catch(function() { return null; });
 
     return Promise.all([profileP, historyP, analystsP, newsP, earningsP, groqP]).then(function(results) {
-      return {
-        profile:   results[0] && results[0][0] ? results[0][0] : null,
-        history:   results[1] && results[1].historical ? results[1].historical : [],
-        analysts:  Array.isArray(results[2]) ? results[2] : [],
-        news:      Array.isArray(results[3]) ? results[3] : [],
-        earnings:  results[4],
-        groq:      results[5]
-      };
+      var r0=results[0],r1=results[1],r2=results[2],r3=results[3],r4=results[4];
+      var profile = Array.isArray(r0) ? (r0[0]||null) : (r0||null);
+      var history = Array.isArray(r1) ? r1 : (r1&&Array.isArray(r1.historical)?r1.historical:[]);
+      var analysts = Array.isArray(r2) ? r2 : [];
+      var news = Array.isArray(r3) ? r3 : [];
+      var income=[],surprises=[],estimates=[];
+      if(r4){
+        income    = Array.isArray(r4.income)?r4.income:(r4.income&&Array.isArray(r4.income.financials)?r4.income.financials:[]);
+        surprises = Array.isArray(r4.surprises)?r4.surprises:[];
+        estimates = Array.isArray(r4.estimates)?r4.estimates:[];
+      }
+      return {profile:profile,history:history,analysts:analysts,news:news,income:income,surprises:surprises,estimates:estimates,groq:results[5]};
     });
   }
 
@@ -567,7 +571,7 @@
       : '<p style="color:#94a3b8;font-size:14px;">Board data unavailable.</p>';
 
     // Stock chart
-    allHistoricalData = data.history || [];
+    allHistoricalData = Array.isArray(data.history) ? data.history : [];
     document.getElementById('stockCardTitle').textContent = (p.companyName||currentTicker) + ' (' + currentTicker + ')';
     setText('stockPriceBig', p.price ? '$' + p.price.toFixed(2) : '—');
     var chEl = document.getElementById('stockChangeBig');
@@ -581,7 +585,8 @@
     renderStockChart(currentPeriod);
 
     // News
-    document.getElementById('rNews').innerHTML = data.news.length ? data.news.map(function(item) {
+    var newsArr = Array.isArray(data.news) ? data.news : [];
+    document.getElementById('rNews').innerHTML = newsArr.length ? newsArr.map(function(item) {
       var d = item.publishedDate ? item.publishedDate.split('T')[0] : '';
       return '<div class="news-card" onclick="window.open(\''+esc(item.url||'#')+'\',\'_blank\')">'
         + '<div class="news-headline">'+esc(item.title)+'</div>'
@@ -594,7 +599,8 @@
     }).join('') : '<p style="color:#94a3b8;font-size:14px;">No recent news found.</p>';
 
     // Analysts
-    var analystRows = data.analysts.slice(0,15).map(function(a) {
+    var analystArr = Array.isArray(data.analysts) ? data.analysts : [];
+    var analystRows = analystArr.slice(0,15).map(function(a) {
       var action = (a.newGrade||'').toLowerCase();
       var rc = (action.indexOf('buy')>-1||action.indexOf('outperform')>-1||action.indexOf('overweight')>-1) ? 'badge-green'
         : (action.indexOf('sell')>-1||action.indexOf('underperform')>-1||action.indexOf('underweight')>-1) ? 'badge-red' : 'badge-amber';
@@ -610,8 +616,8 @@
       : '<p style="color:#94a3b8;font-size:14px;">No analyst data found.</p>';
 
     // Earnings
-    var inc = (data.earnings && data.earnings.income) ? data.earnings.income : [];
-    var surp = (data.earnings && data.earnings.surprises) ? data.earnings.surprises : [];
+    var inc = Array.isArray(data.income) ? data.income : [];
+    var surp = Array.isArray(data.surprises) ? data.surprises : [];
     var latest = inc[0] || {};
     var latestSurp = surp[0] || {};
 
