@@ -429,7 +429,7 @@
     // If it looks like a ticker already, use it directly
     if (/^[A-Z]{1,5}$/.test(q)) return Promise.resolve(q);
     // Otherwise search FMP for the ticker
-    return fetch(FMP_BASE + '/search?query=' + encodeURIComponent(q) + '&limit=1&apikey=' + FMP_KEY)
+    return fetch(FMP_BASE_V3 + '/search?query=' + encodeURIComponent(q) + '&limit=1&apikey=' + FMP_KEY)
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d && d[0] && d[0].symbol) return d[0].symbol;
@@ -444,7 +444,7 @@
     // Activate all steps upfront — fetches run in parallel so we can't chain active states
     for (var s = 1; s <= 5; s++) setStep(s, 'active');
 
-    var profileP = fmpGet(FMP_BASE + '/profile/' + ticker).then(function(d) {
+    var profileP = fmpGet(FMP_BASE_V3 + '/profile/' + ticker).then(function(d) {
       setStep(1, 'done');
       return d;
     });
