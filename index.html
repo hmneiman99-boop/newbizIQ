@@ -332,14 +332,9 @@
 
 <script>
   // ══════════════════════════════════════════════════════════════════════
-  //  CONFIG — replace these keys with your own
+  //  CONFIG — API keys are stored in Netlify environment variables
   // ══════════════════════════════════════════════════════════════════════
-  var GROQ_KEY = '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';
-  var FMP_KEY  = 'nmstjEjvikfCZyTi1a4XHWwwsZbHXJig'; // Get free key at financialmodelingprep.com
-
-  var GROQ_URL  = 'https://api.groq.com/openai/v1/chat/completions';
-  var GROQ_MODEL = 'llama-3.3-70b-versatile';
-  var FMP_BASE  = 'https://financialmodelingprep.com/stable';
+  var GROQ_MODEL  = 'llama-3.3-70b-versatile';
   var FMP_BASE_V3 = 'https://financialmodelingprep.com/api/v3';
 
   var stockChartInstance = null;
@@ -399,22 +394,44 @@
     handleSearch();
   }
 
+  // ── Cache helpers (30-minute TTL via localStorage) ────────────────────
+  function cacheGet(key) {
+    try {
+      var item = JSON.parse(localStorage.getItem(key));
+      if (item && (Date.now() - item.ts) < 30 * 60 * 1000) return item.data;
+    } catch(e) {}
+    return null;
+  }
+  function cacheSet(key, data) {
+    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: data })); } catch(e) {}
+  }
+
   function handleSearch() {
     var q = document.getElementById('searchInput').value.trim().toUpperCase();
     if (!q) return;
     setState('loading', q);
     resetSteps();
 
-    // First resolve the ticker (in case user typed a company name)
     resolveTicker(q).then(function(ticker) {
       currentTicker = ticker;
-      return fetchAllData(ticker);
-    }).then(function(data) {
-      currentData = data;
-      renderResults(data);
-      setState('results', currentTicker);
+
+      // Serve from cache if fresh — instant load, no API calls
+      var cached = cacheGet('piq_' + ticker);
+      if (cached) {
+        currentData = cached;
+        renderResults(cached);
+        setState('results', ticker);
+        return;
+      }
+
+      return fetchAllData(ticker).then(function(data) {
+        cacheSet('piq_' + ticker, data);
+        currentData = data;
+        renderResults(data);
+        setState('results', currentTicker);
+      });
     }).catch(function(err) {
-      setState('error', q, err.message || 'Could not load data. Check your FMP API key or try a stock ticker directly (e.g. AAPL).');
+      setState('error', q, err.message || 'Could not load data. Try a stock ticker directly (e.g. AAPL).');
     });
   }
 
@@ -428,9 +445,8 @@
   function resolveTicker(q) {
     // If it looks like a ticker already, use it directly
     if (/^[A-Z]{1,5}$/.test(q)) return Promise.resolve(q);
-    // Otherwise search FMP for the ticker
-    return fetch(FMP_BASE_V3 + '/search?query=' + encodeURIComponent(q) + '&limit=1&apikey=' + FMP_KEY)
-      .then(function(r) { return r.json(); })
+    // Otherwise search FMP via proxy
+    return fmpGet(FMP_BASE_V3 + '/search?query=' + encodeURIComponent(q) + '&limit=1')
       .then(function(d) {
         if (d && d[0] && d[0].symbol) return d[0].symbol;
         return q; // fallback
@@ -495,22 +511,30 @@
     });
   }
 
-  function fmpGet(url) {
-    var separator = url.indexOf('?') > -1 ? '&' : '?';
-    var fullUrl = url + (url.indexOf('apikey') === -1 ? separator + 'apikey=' + FMP_KEY : '');
-    return fetch(fullUrl).then(function(r) {
-      if (!r.ok) throw new Error('FMP API error ' + r.status + ' (' + url.split('?')[0].split('/').pop() + ')');
-      return r.json();
-    });
+  function fmpGet(url, _retry) {
+    _retry = _retry || 0;
+    // Strip the base URL — the proxy only needs the path portion
+    var path = url.replace('https://financialmodelingprep.com/api/v3', '');
+    return fetch('/.netlify/functions/fmp?path=' + encodeURIComponent(path))
+      .then(function(r) {
+        // Retry on rate-limit or transient server errors (max 3 attempts)
+        if ((r.status === 429 || r.status >= 500) && _retry < 3) {
+          var delay = Math.pow(2, _retry) * 1000;
+          return new Promise(function(res) { setTimeout(res, delay); })
+            .then(function() { return fmpGet(url, _retry + 1); });
+        }
+        if (!r.ok) throw new Error('FMP API error ' + r.status + ' (' + url.split('?')[0].split('/').pop() + ')');
+        return r.json();
+      });
   }
 
   // ══════════════════════════════════════════════════════════════════════
   //  GROQ
   // ══════════════════════════════════════════════════════════════════════
   function callGroq(userPrompt, systemPrompt) {
-    return fetch(GROQ_URL, {
+    return fetch('/.netlify/functions/groq', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: GROQ_MODEL, temperature: 0.2, max_tokens: 800,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }]
