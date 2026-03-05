@@ -468,26 +468,26 @@
     var historyP = fmpGet(FMP_BASE_V3 + '/historical-price-full/' + ticker + '?serietype=line').then(function(d) {
       setStep(2, 'done');
       return d;
-    });
+    }).catch(function() { setStep(2, 'done'); return []; });
 
     var analystsP = fmpGet(FMP_BASE_V3 + '/grade/' + ticker + '?limit=20').then(function(d) {
       setStep(3, 'done');
       return d;
-    });
+    }).catch(function() { setStep(3, 'done'); return []; });
 
     var newsP = fmpGet(FMP_BASE_V3 + '/stock_news?tickers=' + ticker + '&limit=10').then(function(d) {
       setStep(4, 'done');
       return d;
-    });
+    }).catch(function() { setStep(4, 'done'); return []; });
 
     var earningsP = fmpGet(FMP_BASE_V3 + '/income-statement/' + ticker + '?period=quarter&limit=4').then(function(earningsIncome) {
-      return fmpGet(FMP_BASE_V3 + '/earnings-surprises/' + ticker).then(function(surprises) {
-        return fmpGet(FMP_BASE_V3 + '/analyst-estimates/' + ticker + '?period=quarter&limit=2').then(function(estimates) {
+      return fmpGet(FMP_BASE_V3 + '/earnings-surprises/' + ticker).catch(function() { return []; }).then(function(surprises) {
+        return fmpGet(FMP_BASE_V3 + '/analyst-estimates/' + ticker + '?period=quarter&limit=2').catch(function() { return []; }).then(function(estimates) {
           setStep(5, 'done');
           return { income: earningsIncome, surprises: surprises, estimates: estimates };
         });
       });
-    });
+    }).catch(function() { setStep(5, 'done'); return { income: [], surprises: [], estimates: [] }; });
 
     // Groq for bio/leadership/board (not available in FMP free tier)
     var groqP = callGroq(
@@ -523,7 +523,13 @@
           return new Promise(function(res) { setTimeout(res, delay); })
             .then(function() { return fmpGet(url, _retry + 1); });
         }
-        if (!r.ok) throw new Error('FMP API error ' + r.status + ' (' + url.split('?')[0].split('/').pop() + ')');
+        if (!r.ok) {
+          return r.text().then(function(body) {
+            var msg = 'FMP error ' + r.status;
+            try { var parsed = JSON.parse(body); if (parsed['Error Message']) msg = parsed['Error Message']; } catch(e) {}
+            throw new Error(msg);
+          });
+        }
         return r.json();
       });
   }
